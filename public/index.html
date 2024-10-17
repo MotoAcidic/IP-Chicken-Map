@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Network Diagram with Chicken</title>
+  <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+  <style>
+    /* Make the body fill the screen */
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    /* Container for the network and the chicken */
+    #container {
+      width: 100vw; /* Full width of the screen */
+      height: 100vh; /* Full height of the screen */
+      position: relative; /* Container for the map and chicken */
+      overflow: hidden;
+      border: 1px solid #ccc; /* Optional border to visualize the container */
+    }
+
+    /* Chicken CSS */
+    #chicken {
+      position: absolute;
+      width: 100px;
+      z-index: 1000; /* Ensure the chicken is on top */
+      transition: transform 0.5s linear; /* Smooth movement */
+    }
+
+    /* Network should fill the container */
+    #network {
+      width: 100%; /* Full width of the container */
+      height: 100%; /* Full height of the container */
+      position: absolute;
+    }
+
+    /* Button to bring chicken to the center */
+    #centerButton {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      z-index: 2000; /* On top of everything */
+      padding: 10px 20px;
+      font-size: 16px;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div id="container">
+    <!-- Network Map -->
+    <div id="network"></div>
+
+    <!-- Chicken Image -->
+    <img id="chicken" src="chicken.png" alt="Running Chicken" onerror="alert('Chicken image not found!')" />
+
+    <!-- Button to bring the chicken to the center -->
+    <button id="centerButton">Move Chicken to Center</button>
+  </div>
+
+  <script>
+    let network;
+    let chicken;
+    let draggedNodeId = null;
+    let chickenDraggingInterval;
+    let chickenPosition = { x: window.innerWidth - 150, y: window.innerHeight - 150 }; // Chicken initial position
+    const screenPadding = 50; // Padding to prevent off-screen dragging
+
+    async function getNetworkData() {
+      const response = await fetch('/scan'); // Ensure your API is providing data
+      return await response.json();
+    }
+
+    function inferConnections(devices) {
+      const edges = [];
+      for (let i = 0; i < devices.length - 1; i++) {
+        const currentIp = devices[i].ip.split('.').map(Number);
+        const nextIp = devices[i + 1].ip.split('.').map(Number);
+
+        if (currentIp.slice(0, 3).join('.') === nextIp.slice(0, 3).join('.') && currentIp[3] + 1 === nextIp[3]) {
+          edges.push({ from: i, to: i + 1 });
+        }
+      }
+      return edges;
+    }
+
+    function drawNetwork(devices) {
+      const nodes = devices.map((device, index) => ({
+        id: index,
+        label: `${device.name || 'Unknown'} (${device.ip})`,
+      }));
+
+      const edges = inferConnections(devices);
+
+      const container = document.getElementById('network');
+      const data = { nodes: new vis.DataSet(nodes), edges: new vis.DataSet(edges) };
+
+      const options = {
+        physics: {
+          enabled: true,  // Enable force layout to spread the bubbles
+          stabilization: { iterations: 150 } // More iterations to stabilize the network
+        },
+        interaction: {
+          dragNodes: true,  // Allow dragging of nodes
+          zoomView: true,   // Allow zooming
+          dragView: true,   // Allow dragging of the view
+        },
+        layout: {
+          improvedLayout: true,
+        }
+      };
+
+      network = new vis.Network(container, data, options);
+
+      // Set min and max zoom levels to allow zooming out
+      network.on("zoom", function (params) {
+        if (params.scale > 1.5) {
+          network.moveTo({ scale: 1.5 }); // Max zoom in
+        } else if (params.scale < 0.3) { // Allow more zoom out
+          network.moveTo({ scale: 0.3 });
+        }
+      });
+
+      // Restrict dragging to prevent moving off-screen
+      network.on('beforeDrawing', function () {
+        const containerWidth = container.offsetWidth - screenPadding;
+        const containerHeight = container.offsetHeight - screenPadding;
+
+        // Restrict chicken to stay within container bounds
+        chickenPosition.x = Math.min(Math.max(chickenPosition.x, 0), containerWidth);
+        chickenPosition.y = Math.min(Math.max(chickenPosition.y, 0), containerHeight);
+
+        chicken.style.transform = `translate(${chickenPosition.x}px, ${chickenPosition.y}px)`;
+      });
+    }
+
+    function moveChickenToNode(nodeId) {
+      const nodePosition = network.getPositions([nodeId])[nodeId];
+      chickenPosition.x = nodePosition.x - 50;
+      chickenPosition.y = nodePosition.y - 50;
+
+      // Ensure the chicken stays within the container bounds
+      const container = document.getElementById('container');
+      chickenPosition.x = Math.min(Math.max(chickenPosition.x, screenPadding), container.offsetWidth - screenPadding - 100);
+      chickenPosition.y = Math.min(Math.max(chickenPosition.y, screenPadding), container.offsetHeight - screenPadding - 100);
+
+      // Move the chicken to the node
+      chicken.style.transform = `translate(${chickenPosition.x}px, ${chickenPosition.y}px)`;
+    }
+
+    function moveChickenToCenter() {
+      // Center the chicken based on the container
+      const container = document.getElementById('container');
+      chickenPosition.x = container.offsetWidth / 2 - 50;
+      chickenPosition.y = container.offsetHeight / 2 - 50;
+
+      chicken.style.transform = `translate(${chickenPosition.x}px, ${chickenPosition.y}px)`;
+    }
+
+    function grabAndDragNode(nodeId) {
+      draggedNodeId = nodeId;
+      moveChickenToNode(nodeId);
+
+      // Move the node and the chicken together while dragging
+      chickenDraggingInterval = setInterval(() => {
+        if (draggedNodeId !== null) {
+          moveChickenToNode(draggedNodeId);
+        } else {
+          clearInterval(chickenDraggingInterval);
+        }
+      }, 100); // Update the chicken's position every 100ms
+    }
+
+    function grabNodeNearMouse(targetX, targetY) {
+      const nodeIds = network.body.data.nodes.getIds();
+      let closestNodeId = null;
+      let closestDistance = Infinity;
+
+      // Find the closest node to the mouse position
+      nodeIds.forEach((nodeId) => {
+        const nodePosition = network.getPositions([nodeId])[nodeId];
+        const distance = Math.sqrt(
+          (nodePosition.x - targetX) ** 2 + (nodePosition.y - targetY) ** 2
+        );
+
+        if (distance < closestDistance) {
+          closestDistance = distance;
+          closestNodeId = nodeId;
+        }
+      });
+
+      // Start dragging the closest node
+      if (closestNodeId !== null) {
+        grabAndDragNode(closestNodeId);
+      }
+    }
+
+    // Start dragging the node near the mouse and move chicken to the click position
+    function handleClick(event) {
+      const rect = event.target.getBoundingClientRect();
+      const mouseX = event.clientX - rect.left;
+      const mouseY = event.clientY - rect.top;
+
+      grabNodeNearMouse(mouseX, mouseY);
+    }
+
+    async function init() {
+      const devices = await getNetworkData();
+      drawNetwork(devices);
+
+      chicken = document.getElementById('chicken');
+
+      // Listen for clicks on the network
+      document.getElementById('network').addEventListener('click', handleClick);
+
+      // Move chicken to center on button click
+      document.getElementById('centerButton').addEventListener('click', moveChickenToCenter);
+    }
+
+    init();
+  </script>
+</body>
+</html>
