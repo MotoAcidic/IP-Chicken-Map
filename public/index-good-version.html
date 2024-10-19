@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Network Diagram with Chicken and Clippy</title>
+  <title>Network Diagram with Chicken and Eggs</title>
   <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
   <style>
     /* Make the body fill the screen */
@@ -30,29 +30,42 @@
       height: 100%; /* Full height of the container */
       position: absolute;
     }
+
+    /* Button to clear all eggs */
+    #clearEggsButton {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      z-index: 2000; /* On top of everything */
+      padding: 10px 20px;
+      font-size: 16px;
+      background-color: #f44336;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
   </style>
 </head>
 <body>
   <div id="container">
     <!-- Network Map -->
     <div id="network"></div>
+
+    <!-- Button to clear all eggs -->
+    <button id="clearEggsButton">Clear Eggs</button>
   </div>
 
   <script>
     let network;
     let chickenNodeId = 'chicken';
-    let clippyNodeId = 'clippy';
     let targetPositionChicken = { x: 0, y: 0 };
-    let targetPositionClippy = { x: 0, y: 0 };
     const screenPadding = 50; // Padding to prevent off-screen dragging
     let nodes = [];
     let edges = [];
     let chickenSpeed = 5; // Default chicken speed
-    let clippySpeed = 5; // Default clippy speed
     let chickenVelocity = { x: 0, y: 0 }; // Chicken velocity
-    let clippyVelocity = { x: 0, y: 0 }; // Clippy velocity
     let isDraggingChicken = false;
-    let isDraggingClippy = false;
     let lastMousePosition = { x: 0, y: 0 };
 
     async function getNetworkData() {
@@ -95,16 +108,6 @@
         y: 0
       });
 
-      // Add the clippy as a node
-      nodes.push({
-        id: clippyNodeId,
-        shape: 'image',
-        image: 'clippy.jpg',
-        size: 50,
-        x: 0,
-        y: 0
-      });
-
       edges = inferConnections(devices);
 
       const data = { nodes: new vis.DataSet(nodes), edges: new vis.DataSet(edges) };
@@ -135,13 +138,10 @@
         }
       });
 
-      // Add event listeners for dragging the chicken and clippy
+      // Add event listeners for dragging the chicken
       network.on("dragStart", function (params) {
         if (params.nodes.includes(chickenNodeId)) {
           isDraggingChicken = true;
-          lastMousePosition = { x: params.event.center.x, y: params.event.center.y };
-        } else if (params.nodes.includes(clippyNodeId)) {
-          isDraggingClippy = true;
           lastMousePosition = { x: params.event.center.x, y: params.event.center.y };
         }
       });
@@ -152,20 +152,20 @@
           chickenVelocity.x = currentMousePosition.x - lastMousePosition.x;
           chickenVelocity.y = currentMousePosition.y - lastMousePosition.y;
           lastMousePosition = currentMousePosition;
-        } else if (isDraggingClippy) {
-          const currentMousePosition = { x: params.event.center.x, y: params.event.center.y };
-          clippyVelocity.x = currentMousePosition.x - lastMousePosition.x;
-          clippyVelocity.y = currentMousePosition.y - lastMousePosition.y;
-          lastMousePosition = currentMousePosition;
         }
       });
 
       network.on("dragEnd", function (params) {
         if (isDraggingChicken) {
           isDraggingChicken = false;
-        } else if (isDraggingClippy) {
-          isDraggingClippy = false;
         }
+      });
+
+      // Add event listener for mouse clicks to move the chicken
+      container.addEventListener('click', (event) => {
+        const rect = container.getBoundingClientRect();
+        targetPositionChicken.x = event.clientX - rect.left - containerWidth / 2;
+        targetPositionChicken.y = event.clientY - rect.top - containerHeight / 2;
       });
     }
 
@@ -176,14 +176,31 @@
 
       targetPositionChicken.x = Math.random() * containerWidth - containerWidth / 2;
       targetPositionChicken.y = Math.random() * containerHeight - containerHeight / 2;
+    }
 
-      targetPositionClippy.x = Math.random() * containerWidth - containerWidth / 2;
-      targetPositionClippy.y = Math.random() * containerHeight - containerHeight / 2;
+    function dropEgg(x, y) {
+      const eggNodeId = `egg_${Date.now()}`;
+      nodes.push({
+        id: eggNodeId,
+        shape: 'image',
+        image: 'egg.png',
+        size: 30,
+        x: x,
+        y: y
+      });
+      network.body.data.nodes.add(nodes[nodes.length - 1]);
+    }
+
+    function clearEggs() {
+      const eggNodes = nodes.filter(node => node.id.startsWith('egg_'));
+      eggNodes.forEach(eggNode => {
+        network.body.data.nodes.remove(eggNode.id);
+      });
+      nodes = nodes.filter(node => !node.id.startsWith('egg_'));
     }
 
     function moveChickenStep() {
       const chickenNode = network.body.nodes[chickenNodeId];
-      const clippyNode = network.body.nodes[clippyNodeId];
 
       if (!isDraggingChicken) {
         // Apply momentum to chicken
@@ -191,20 +208,18 @@
         chickenNode.y += chickenVelocity.y;
 
         // Dampen the velocity
-        chickenVelocity.x *= 0.95;
-        chickenVelocity.y *= 0.95;
+        chickenVelocity.x *= 2;
+        chickenVelocity.y *= 2;
 
-        // If the velocity is very low, move the chicken back to the center
+        // If the velocity is very low, move the chicken towards the target position
         if (Math.abs(chickenVelocity.x) < 0.1 && Math.abs(chickenVelocity.y) < 0.1) {
-          const centerX = 0;
-          const centerY = 0;
-          const deltaX = centerX - chickenNode.x;
-          const deltaY = centerY - chickenNode.y;
+          const deltaX = targetPositionChicken.x - chickenNode.x;
+          const deltaY = targetPositionChicken.y - chickenNode.y;
           const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
 
           if (distance < chickenSpeed) {
-            chickenNode.x = centerX;
-            chickenNode.y = centerY;
+            chickenNode.x = targetPositionChicken.x;
+            chickenNode.y = targetPositionChicken.y;
             chickenVelocity = { x: 0, y: 0 }; // Reset velocity
             setTimeout(setRandomTargetPosition, 1); // Set a new target position after 1ms
           } else {
@@ -212,34 +227,10 @@
             chickenNode.y += (deltaY / distance) * chickenSpeed;
           }
         }
-      }
 
-      if (!isDraggingClippy) {
-        // Apply momentum to clippy
-        clippyNode.x += clippyVelocity.x;
-        clippyNode.y += clippyVelocity.y;
-
-        // Dampen the velocity
-        clippyVelocity.x *= 0.95;
-        clippyVelocity.y *= 0.95;
-
-        // If the velocity is very low, move the clippy back to the center
-        if (Math.abs(clippyVelocity.x) < 0.1 && Math.abs(clippyVelocity.y) < 0.1) {
-          const centerX = 0;
-          const centerY = 0;
-          const deltaX = centerX - clippyNode.x;
-          const deltaY = centerY - clippyNode.y;
-          const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-
-          if (distance < clippySpeed) {
-            clippyNode.x = centerX;
-            clippyNode.y = centerY;
-            clippyVelocity = { x: 0, y: 0 }; // Reset velocity
-            setTimeout(setRandomTargetPosition, 1); // Set a new target position after 1ms
-          } else {
-            clippyNode.x += (deltaX / distance) * clippySpeed;
-            clippyNode.y += (deltaY / distance) * clippySpeed;
-          }
+        // Randomly drop an egg
+        if (Math.random() < 0.01) { // 1% chance to drop an egg each step
+          dropEgg(chickenNode.x, chickenNode.y);
         }
       }
 
@@ -252,23 +243,10 @@
           const nodeDeltaY = nodePosition.y - chickenNode.y;
           const nodeDistance = Math.sqrt(nodeDeltaX * nodeDeltaX + nodeDeltaY * nodeDeltaY);
 
-          if (nodeDistance < 100) { // If the chicken is near the node
+          if (nodeDistance < 10) { // If the chicken is near the node
             // Set a new target position to move around the node
             targetPositionChicken.x = chickenNode.x - nodeDeltaX;
             targetPositionChicken.y = chickenNode.y - nodeDeltaY;
-          }
-        }
-
-        if (nodeId !== clippyNodeId) {
-          const nodePosition = network.getPositions([nodeId])[nodeId];
-          const nodeDeltaX = nodePosition.x - clippyNode.x;
-          const nodeDeltaY = nodePosition.y - clippyNode.y;
-          const nodeDistance = Math.sqrt(nodeDeltaX * nodeDeltaX + nodeDeltaY * nodeDeltaY);
-
-          if (nodeDistance < 100) { // If the clippy is near the node
-            // Set a new target position to move around the node
-            targetPositionClippy.x = clippyNode.x - nodeDeltaX;
-            targetPositionClippy.y = clippyNode.y - nodeDeltaY;
           }
         }
       });
@@ -277,8 +255,7 @@
     }
 
     function randomizeSpeeds() {
-      chickenSpeed = Math.random() < 0.1 ? 15 : 5; // 10% chance to increase speed
-      clippySpeed = Math.random() < 0.1 ? 15 : 5; // 10% chance to increase speed
+      chickenSpeed = Math.random() < 10 ? 15 : 5; // 10% chance to increase speed
     }
 
     async function init() {
@@ -288,11 +265,14 @@
       // Set an initial random target position
       setRandomTargetPosition();
 
-      // Move chicken and clippy in small steps towards the target position
+      // Move chicken in small steps towards the target position
       setInterval(moveChickenStep, 1); // Move in small steps every 100ms
 
       // Randomize speeds every 2 seconds
       setInterval(randomizeSpeeds, 2000);
+
+      // Add event listener to clear eggs button
+      document.getElementById('clearEggsButton').addEventListener('click', clearEggs);
     }
 
     init();
